@@ -9,146 +9,104 @@ Original file is located at
 
 # -*- coding: utf-8 -*-
 
-# --- 1. ส่วนการ Patch แก้ปัญหา Error (ต้องอยู่บนสุดเสมอ) ---
 import sklearn.compose._column_transformer
 class _RemainderColsList(list): pass
 sklearn.compose._column_transformer._RemainderColsList = _RemainderColsList
-# --------------------------------------------------------
 
 import streamlit as st
 import pandas as pd
 import joblib
 
-# --- 2. การตกแต่งหน้าเว็บ (UI Enhancement) ---
+# --- UI Setup ---
 st.set_page_config(page_title="Diabetes AI Predictor", page_icon="🩺", layout="centered")
 
-# Custom CSS เพื่อความสวยงาม
 st.markdown("""
     <style>
-    .reportview-container { background: #f0f2f6; }
-    .main-title { font-size: 40px; font-weight: 800; color: #2C3E50; text-align: center; margin-bottom: 5px; }
-    .sub-title { font-size: 18px; color: #7F8C8D; text-align: center; margin-bottom: 30px; }
-    .disclaimer-box { font-size: 12px; color: #7F8C8D; background-color: #FDFEFE; padding: 15px; border-radius: 10px; border: 1px solid #EAECEE; margin-top: 30px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Kanit:wght@300;400;600&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', 'Kanit', sans-serif; background-color: #f8f9fa; }
+    .main-title { font-size: 42px; font-weight: 800; color: #0f172a; text-align: center; margin-top: -40px; margin-bottom: 8px; }
+    .sub-title { font-size: 16px; color: #64748b; text-align: center; margin-bottom: 40px; }
+    .stButton > button { width: 100%; border-radius: 12px; height: 52px; background-color: #2563eb; color: white; font-weight: 600; border: none; }
+    .result-container { background-color: white; padding: 24px; border-radius: 20px; border-left: 6px solid #2563eb; margin-top: 30px; box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.05); }
+    .metric-value { font-size: 48px; font-weight: 800; color: #2563eb; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🩺 Diabetes AI Predictor</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">ระบบประเมินความเสี่ยงโรคเบาหวานอัจฉริยะ (ความแม่นยำ 92%)</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🩺 Diabetes AI</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">ระบบวิเคราะห์ความเสี่ยงเบาหวานด้วย Gradient Boosting</div>', unsafe_allow_html=True)
 
-# --- 3. โหลดโมเดล ---
 @st.cache_resource
-def load_model():
-    # โหลดโมเดล Ultimate ที่บันทึกไว้ (ใช้ 8 ตัวแปร)
-    return joblib.load('diabetes_prediction_ultimate_model.pkl')
-
-model = load_model()
-
-# --- 4. ฟังก์ชันสำหรับทำนายและแสดงผลเป็น % ---
-def predict_and_display(input_data):
-    # เปลี่ยนข้อมูลเป็น DataFrame
-    input_df = pd.DataFrame([input_data])
-
-    # ใช้ predict_proba เพื่อดึงความน่าจะเป็น (โอกาสเป็นโรคเบาหวาน %)
-    # model.predict_proba คืนค่าเป็น array [[โอกาสไม่เป็น, โอกาสเป็น]]
+def load_models():
     try:
-        prob = model.predict_proba(input_df)[0][1] * 100
+        return joblib.load('diabetes_model_standard.pkl'), joblib.load('diabetes_model_advanced.pkl')
+    except: return None, None
 
-        st.markdown("---")
-        st.subheader("ผลการวิเคราะห์ความเสี่ยงของคุณ")
-        st.metric(label="โอกาสเสี่ยงเป็นโรคเบาหวาน", value=f"{prob:.2f} %")
+model_std, model_adv = load_models()
 
-        if prob > 70:
-            st.error("⚠️ **ความเสี่ยงสูง:** คุณมีแนวโน้มที่จะเป็นโรคเบาหวานสูงมาก กรุณาพบแพทย์เพื่อตรวจสุขภาพอย่างละเอียดทันที")
-        elif prob > 30:
-            st.warning("🟡 **ความเสี่ยงปานกลาง:** คุณเริ่มมีความเสี่ยง ควรปรับพฤติกรรมการกินอาหารและการออกกำลังกาย")
+def predict_and_display(input_data, active_model):
+    input_df = pd.DataFrame([input_data])
+    is_standard = len(input_data) == 3
+
+    try:
+        class_1_index = list(active_model.classes_).index(1)
+        raw_prob = active_model.predict_proba(input_df)[0][class_1_index] * 100
+
+        # Risk Normalization
+        if is_standard:
+            prob = ((raw_prob - 35.0) / (100.0 - 35.0)) * 100
+            prob = max(1.0, min(99.0, prob))
         else:
-            st.success("✅ **ความเสี่ยงต่ำ:** สุขภาพของคุณยังอยู่ในเกณฑ์ดีเยี่ยม หมั่นรักษาสุขภาพต่อไป")
+            prob = raw_prob
 
-    except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการประมวลผล: {e}")
+        st.markdown(f'<div class="result-container"><div style="color:#64748b;font-weight:600;">โอกาสความเสี่ยง</div><div class="metric-value">{prob:.2f}%</div></div>', unsafe_allow_html=True)
 
-# --- 5. แบ่งหน้าจอเป็น 2 โหมด (Tabs) ---
-tab1, tab2 = st.tabs(["🟢 โหมดมาตรฐาน (สำหรับบุคคลทั่วไป)", "🔵 โหมดเชิงลึก (สำหรับผู้มีผลตรวจเลือด)"])
+        high, med = (60, 25) if is_standard else (70, 30)
+        if prob >= high: st.error("⚠️ **ความเสี่ยงสูง:** ควรพบแพทย์เพื่อตรวจสุขภาพอย่างละเอียด")
+        elif prob >= med: st.warning("🟡 **ความเสี่ยงปานกลาง:** ควรปรับพฤติกรรมการทานอาหาร")
+        else: st.success("✅ **ความเสี่ยงต่ำ:** สุขภาพของคุณยังอยู่ในเกณฑ์ดี")
 
-# ==========================================
-# TAB 1: Standard Mode
-# ==========================================
+        # แสดงชื่อ Algorithm
+        algo = active_model.named_steps['classifier'].__class__.__name__
+        st.caption(f"🧠 Engine: {algo} | Recall Optimization")
+
+    except Exception as e: st.error(f"Error: {e}")
+
+tab1, tab2 = st.tabs(["✨ โหมดมาตรฐาน", "🧪 โหมดเชิงลึก"])
+
 with tab1:
-    st.markdown("กรอกข้อมูลพื้นฐานทางร่างกาย (ระบบจะใช้ค่าเฉลี่ยปกติสำหรับผลเลือด)")
-    s1, s2 = st.columns(2)
+    st.markdown("##### 📝 ข้อมูลร่างกายเบื้องต้น")
+    c1, c2 = st.columns(2)
+    with c1:
+        age_s = st.number_input("อายุ", 1, 100, 30, key="s_age")
+        weight_s = st.number_input("น้ำหนัก (กก.)", 30.0, 200.0, 70.0, key="s_weight")
+    with c2:
+        height_s = st.number_input("ส่วนสูง (ซม.)", 100.0, 250.0, 170.0, key="s_height")
+        act_s = st.number_input("ออกกำลังกาย (นาที/สัปดาห์)", 0, 1000, 150, key="s_act")
 
-    with s1:
-        age_s = st.number_input("อายุ (ปี)", 1, 120, 30, key="s_age")
-        weight_s = st.number_input("น้ำหนัก (กิโลกรัม)", 30.0, 200.0, 70.0, key="s_weight")
-        height_s = st.number_input("ส่วนสูง (เซนติเมตร)", 100.0, 250.0, 170.0, key="s_height")
+    bmi_s = weight_s / ((height_s / 100) ** 2)
+    st.info(f"💡 BMI: {bmi_s:.2f}")
 
-        # คำนวณ BMI อัตโนมัติ
-        bmi_s = weight_s / ((height_s / 100) ** 2)
-        st.info(f"📊 ดัชนีมวลกาย (BMI) ของคุณคือ: **{bmi_s:.2f}**")
+    if st.button("วิเคราะห์ความเสี่ยง", key="btn_std"):
+        predict_and_display({'age': age_s, 'bmi': bmi_s, 'physical_activity_minutes_per_week': act_s}, model_std)
 
-    with s2:
-        act_s = st.number_input("ออกกำลังกาย (นาที/สัปดาห์)", 0, 2000, 150, key="s_act")
-        fam_s = st.selectbox("ประวัติครอบครัวเป็นเบาหวาน", ["ไม่มี", "มี"], key="s_fam")
-        sys_s = st.number_input("ความดันตัวบน (Systolic BP)", 80, 250, 120, key="s_sys")
-
-    if st.button("วิเคราะห์ความเสี่ยง (Standard)", use_container_width=True):
-        # จำลองผลเลือดให้อยู่ในเกณฑ์ปกติ เนื่องจากโหมดมาตรฐานไม่มีข้อมูลแล็บ
-        input_data_std = {
-            'age': age_s,
-            'bmi': bmi_s,
-            'physical_activity_minutes_per_week': act_s,
-            'family_history_diabetes': 1 if fam_s == "มี" else 0,
-            'systolic_bp': sys_s,
-            'glucose_fasting': 90,  # ค่าปกติ
-            'hba1c': 5.0,           # ค่าปกติ
-            'ldl_cholesterol': 100  # ค่าปกติ
-        }
-        predict_and_display(input_data_std)
-
-# ==========================================
-# TAB 2: Advanced Mode (ต้องการ 8 ตัวแปรเต็ม)
-# ==========================================
 with tab2:
-    st.markdown("กรอกข้อมูลสุขภาพเชิงลึก เพื่อความแม่นยำระดับ 92%")
-    a1, a2 = st.columns(2)
+    st.markdown("##### 🔬 ข้อมูลทางห้องปฏิบัติการ")
+    a_col1, a_col2 = st.columns(2)
+    with a_col1:
+        age_a = st.number_input("อายุ", 1, 100, 30, key="a_age")
+        weight_a = st.number_input("น้ำหนัก", 30.0, 200.0, 70.0, key="a_weight")
+        height_a = st.number_input("ส่วนสูง", 100.0, 250.0, 170.0, key="a_height")
+        act_a = st.number_input("ออกกำลังกาย", 0, 1000, 150, key="a_act")
+        fam_a = st.selectbox("ประวัติครอบครัว", ["ไม่มี", "มี"], key="a_fam")
+    with a_col2:
+        sys_a = st.number_input("ความดันตัวบน", 80, 200, 120)
+        glu_a = st.number_input("น้ำตาลก่อนอาหาร", 50, 400, 100)
+        hba1c_a = st.number_input("น้ำตาลสะสม", 3.0, 15.0, 5.5)
+        ldl_a = st.number_input("ไขมันเลว", 50, 300, 130)
 
-    with a1:
-        age_a = st.number_input("อายุ (ปี)", 1, 120, 30, key="a_age")
-        weight_a = st.number_input("น้ำหนัก (กิโลกรัม)", 30.0, 200.0, 70.0, key="a_weight")
-        height_a = st.number_input("ส่วนสูง (เซนติเมตร)", 100.0, 250.0, 170.0, key="a_height")
-
-        # คำนวณ BMI อัตโนมัติ
-        bmi_a = weight_a / ((height_a / 100) ** 2)
-        st.info(f"📊 ดัชนีมวลกาย (BMI) ของคุณคือ: **{bmi_a:.2f}**")
-
-        act_a = st.number_input("ออกกำลังกาย (นาที/สัปดาห์)", 0, 2000, 150, key="a_act")
-        fam_a = st.selectbox("ประวัติครอบครัวเป็นเบาหวาน", ["ไม่มี", "มี"], key="a_fam")
-
-    with a2:
-        sys_a = st.number_input("ความดันตัวบน (Systolic BP)", 80, 250, 120, help="ความดันปกติคือตัวบนไม่เกิน 120")
-        glu_a = st.number_input("น้ำตาลก่อนอาหาร (Fasting Glucose)", 50, 500, 100, help="หน่วย: mg/dL")
-        hba1c_a = st.number_input("น้ำตาลสะสม (HbA1c)", 3.0, 15.0, 5.5, help="ความแม่นยำสูงที่สุดในการวินิจฉัย")
-        ldl_a = st.number_input("ไขมันเลว (LDL Cholesterol)", 50, 300, 130, help="ระดับไขมันชนิดไม่ดี")
-
-    if st.button("วิเคราะห์เชิงลึก (Advanced Mode)", type="primary", use_container_width=True):
-        input_data_adv = {
-            'age': age_a,
-            'bmi': bmi_a,
-            'physical_activity_minutes_per_week': act_a,
-            'family_history_diabetes': 1 if fam_a == "มี" else 0,
-            'systolic_bp': sys_a,
-            'glucose_fasting': glu_a,
-            'hba1c': hba1c_a,
-            'ldl_cholesterol': ldl_a
-        }
-        predict_and_display(input_data_adv)
-
-# --- 6. คำเตือน (Disclaimer) ---
-st.markdown("""
-<div class="disclaimer-box">
-    <b>⚠️ ข้อจำกัดความรับผิดชอบทางดารแพทย์ (Disclaimer):</b><br>
-    แอปพลิเคชันนี้ทำงานโดยใช้โมเดลปัญญาประดิษฐ์ (Machine Learning) ที่เรียนรู้จากสถิติข้อมูลสุขภาพในอดีต
-    ผลลัพธ์ที่ได้เป็นการ <b>"ประเมินความเสี่ยงเบื้องต้น"</b> เท่านั้น <u>ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผู้เชี่ยวชาญได้</u>
-    หากท่านมีอาการผิดปกติ กรุณาปรึกษาแพทย์หรือสถานพยาบาลใกล้บ้านท่าน
-</div>
-""", unsafe_allow_html=True)
+    if st.button("เริ่มการวิเคราะห์เชิงลึก", key="btn_adv"):
+        predict_and_display({
+            'age': age_a, 'bmi': weight_a/((height_a/100)**2), 'physical_activity_minutes_per_week': act_a,
+            'family_history_diabetes': 1 if fam_a == "มี" else 0, 'systolic_bp': sys_a,
+            'glucose_fasting': glu_a, 'hba1c': hba1c_a, 'ldl_cholesterol': ldl_a
+        }, model_adv)
